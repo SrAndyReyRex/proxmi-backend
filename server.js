@@ -5,11 +5,18 @@ const app = express();
 const PORT = 3000;
 
 const productoRoutes = require('./routes/productoRoutes');
+const authRoutes = require('./routes/authRoutes');
 // Permite recibir datos JSON en futuras peticiones.
 app.use(express.json());
 
 // Rutas de productos
 app.use('/api/productos', productoRoutes);
+
+// Rutas de autenticacion
+app.use('/api/auth', authRoutes);
+
+
+
 
 // Ruta principal
 app.get('/', (req, res) => {

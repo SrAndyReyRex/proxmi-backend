@@ -104,7 +104,6 @@ const obtenerProductoPorId = async (req, res) => {
 const crearProducto = async (req, res) => {
     try {
         const {
-            idTienda,
             nombre,
             descripcion,
             categoria,
@@ -112,32 +111,87 @@ const crearProducto = async (req, res) => {
             stock
         } = req.body;
 
-        // Validar los datos obligatorios
+        // Validar el nombre
         if (
-            !Number.isInteger(idTienda) ||
-            idTienda <= 0 ||
             typeof nombre !== 'string' ||
             nombre.trim() === '' ||
-            precio === undefined ||
-            precio === null ||
-            precio === '' ||
-            !Number.isFinite(Number(precio)) ||
-            !Number.isInteger(stock) ||
-            stock < 0
+            nombre.trim().length > 150
         ) {
             return res.status(400).json({
-                mensaje: 'Datos inválidos. Verifica idTienda, nombre, precio y stock.'
+                mensaje: 'El nombre es obligatorio y no puede superar los 150 caracteres.'
             });
         }
 
-        // El precio no puede ser negativo
-        if (Number(precio) < 0) {
+        // Validar la descripción
+        if (
+            descripcion !== undefined &&
+            descripcion !== null &&
+            typeof descripcion !== 'string'
+        ) {
             return res.status(400).json({
-                mensaje: 'El precio no puede ser negativo.'
+                mensaje: 'La descripción debe ser un texto o null.'
             });
         }
 
-        // Registrar el producto en MySQL
+        // Validar la categoría
+        if (
+            categoria !== undefined &&
+            categoria !== null &&
+            typeof categoria !== 'string'
+        ) {
+            return res.status(400).json({
+                mensaje: 'La categoría debe ser un texto o null.'
+            });
+        }
+
+        // Validar el precio
+        const precioNumerico =
+            typeof precio === 'number'
+                ? precio
+                : typeof precio === 'string' && precio.trim() !== ''
+                    ? Number(precio)
+                    : NaN;
+
+        if (
+            !Number.isFinite(precioNumerico) ||
+            precioNumerico < 0 ||
+            !/^\d+(\.\d{1,2})?$/.test(String(precio).trim()) ||
+            precioNumerico > 99999999.99
+        ) {
+            return res.status(400).json({
+                mensaje: 'El precio debe ser un número no negativo con máximo dos decimales.'
+            });
+        }
+
+        // Validar el stock
+        if (
+            !Number.isInteger(stock) ||
+            stock < 0 ||
+            stock > 2147483647
+        ) {
+            return res.status(400).json({
+                mensaje: 'El stock debe ser un entero no negativo válido.'
+            });
+        }
+
+        // Obtener la tienda asociada al usuario autenticado
+        const [comercios] = await pool.execute(
+            `SELECT idTienda
+             FROM Comercio
+             WHERE idUsuario = ?
+               AND estado = TRUE`,
+            [req.usuario.idUsuario]
+        );
+
+        if (comercios.length === 0) {
+            return res.status(403).json({
+                mensaje: 'No tienes una tienda activa asociada a tu cuenta.'
+            });
+        }
+
+        const idTienda = comercios[0].idTienda;
+
+        // Registrar el producto
         const [resultado] = await pool.execute(
             `INSERT INTO Producto
                 (idTienda, nombre, descripcion, categoria, precio, stock)
@@ -145,23 +199,22 @@ const crearProducto = async (req, res) => {
             [
                 idTienda,
                 nombre.trim(),
-                descripcion ?? null,
-                categoria ?? null,
-                Number(precio),
+                descripcion == null ? null : descripcion.trim(),
+                categoria == null ? null : categoria.trim(),
+                precioNumerico,
                 stock
             ]
         );
 
-        // Responder con el producto creado
         return res.status(201).json({
             mensaje: 'Producto registrado correctamente.',
             producto: {
                 idProducto: resultado.insertId,
                 idTienda,
                 nombre: nombre.trim(),
-                descripcion: descripcion ?? null,
-                categoria: categoria ?? null,
-                precio: Number(precio),
+                descripcion: descripcion == null ? null : descripcion.trim(),
+                categoria: categoria == null ? null : categoria.trim(),
+                precio: precioNumerico,
                 stock,
                 estado: true
             }
@@ -169,12 +222,6 @@ const crearProducto = async (req, res) => {
 
     } catch (error) {
         console.error('Error al registrar producto:', error.message);
-
-        if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-            return res.status(400).json({
-                mensaje: 'El comercio indicado no existe.'
-            });
-        }
 
         return res.status(500).json({
             mensaje: 'Error interno al registrar el producto.'
@@ -185,10 +232,8 @@ const crearProducto = async (req, res) => {
 // Actualizar un producto
 const actualizarProducto = async (req, res) => {
     try {
-        // Obtener el ID desde la URL
         const idProducto = Number(req.params.id);
 
-        // Obtener los datos enviados en el cuerpo
         const {
             nombre,
             descripcion,
@@ -205,55 +250,117 @@ const actualizarProducto = async (req, res) => {
             });
         }
 
-        // Validar los datos recibidos
+        // Validar el nombre
         if (
             typeof nombre !== 'string' ||
             nombre.trim() === '' ||
-            precio === undefined ||
-            precio === null ||
-            precio === '' ||
-            !Number.isFinite(Number(precio)) ||
-            Number(precio) < 0 ||
-            !Number.isInteger(stock) ||
-            stock < 0 ||
-            typeof estado !== 'boolean'
+            nombre.trim().length > 150
         ) {
             return res.status(400).json({
-                mensaje: 'Los datos del producto son inválidos.'
+                mensaje: 'El nombre es obligatorio y no puede superar los 150 caracteres.'
             });
         }
 
-        // Actualizar el registro en MySQL
+        // Validar la descripción
+        if (
+            descripcion !== undefined &&
+            descripcion !== null &&
+            typeof descripcion !== 'string'
+        ) {
+            return res.status(400).json({
+                mensaje: 'La descripción debe ser un texto o null.'
+            });
+        }
+
+        // Validar la categoría
+        if (
+            categoria !== undefined &&
+            categoria !== null &&
+            typeof categoria !== 'string'
+        ) {
+            return res.status(400).json({
+                mensaje: 'La categoría debe ser un texto o null.'
+            });
+        }
+
+        // Validar el precio
+        const precioNumerico =
+            typeof precio === 'number'
+                ? precio
+                : typeof precio === 'string' && precio.trim() !== ''
+                    ? Number(precio)
+                    : NaN;
+
+        if (
+            !Number.isFinite(precioNumerico) ||
+            precioNumerico < 0 ||
+            !/^\d+(\.\d{1,2})?$/.test(String(precio).trim()) ||
+            precioNumerico > 99999999.99
+        ) {
+            return res.status(400).json({
+                mensaje: 'El precio debe ser un número no negativo con máximo dos decimales.'
+            });
+        }
+
+        // Validar el stock
+        if (
+            !Number.isInteger(stock) ||
+            stock < 0 ||
+            stock > 2147483647
+        ) {
+            return res.status(400).json({
+                mensaje: 'El stock debe ser un entero no negativo válido.'
+            });
+        }
+
+        // Validar el estado
+        if (typeof estado !== 'boolean') {
+            return res.status(400).json({
+                mensaje: 'El estado debe ser true o false.'
+            });
+        }
+
+        // Actualizar solo si el producto pertenece al comercio autenticado
         const [resultado] = await pool.execute(
-            `UPDATE Producto
-             SET nombre = ?,
-                 descripcion = ?,
-                 categoria = ?,
-                 precio = ?,
-                 stock = ?,
-                 estado = ?
-             WHERE idProducto = ?`,
+            `UPDATE Producto AS p
+             INNER JOIN Comercio AS c
+                 ON p.idTienda = c.idTienda
+             SET p.nombre = ?,
+                 p.descripcion = ?,
+                 p.categoria = ?,
+                 p.precio = ?,
+                 p.stock = ?,
+                 p.estado = ?
+             WHERE p.idProducto = ?
+               AND c.idUsuario = ?
+               AND c.estado = TRUE`,
             [
                 nombre.trim(),
-                descripcion ?? null,
-                categoria ?? null,
-                Number(precio),
+                descripcion == null ? null : descripcion.trim(),
+                categoria == null ? null : categoria.trim(),
+                precioNumerico,
                 stock,
                 estado,
-                idProducto
+                idProducto,
+                req.usuario.idUsuario
             ]
         );
 
-        // Si no se modificó ninguna fila, comprobar si existe
+        // Si no hubo cambios, comprobar si el producto pertenece a la tienda
         if (resultado.affectedRows === 0) {
             const [productos] = await pool.execute(
-                'SELECT idProducto FROM Producto WHERE idProducto = ?',
-                [idProducto]
+                `SELECT p.idProducto
+                 FROM Producto p
+                 INNER JOIN Comercio c ON p.idTienda = c.idTienda
+                 WHERE p.idProducto = ?
+                   AND c.idUsuario = ?
+                   AND c.estado = TRUE`,
+                [idProducto, req.usuario.idUsuario]
             );
 
             if (productos.length === 0) {
                 return res.status(404).json({
-                    mensaje: 'No se encontró el producto.'
+                    mensaje: 'No se encontró el producto para tu tienda.'
                 });
             }
         }
@@ -272,6 +379,7 @@ const actualizarProducto = async (req, res) => {
     }
 };
 
+
 // Desactivar un producto (eliminación lógica)
 const desactivarProducto = async (req, res) => {
     try {
@@ -284,30 +392,53 @@ const desactivarProducto = async (req, res) => {
             });
         }
 
-        // Comprobar que el producto exista
+        // Comprobar que el producto pertenece al comercio
         const [productos] = await pool.execute(
-            'SELECT idProducto, estado FROM Producto WHERE idProducto = ?',
-            [idProducto]
+            `SELECT p.idProducto, p.estado
+             FROM Producto p
+             INNER JOIN Comercio c ON p.idTienda = c.idTienda
+             WHERE p.idProducto = ?
+               AND c.idUsuario = ?
+               AND c.estado = TRUE`,
+            [idProducto, req.usuario.idUsuario]
         );
 
+        // No revelar ni permitir acceder a productos de otra tienda
         if (productos.length === 0) {
             return res.status(404).json({
-                mensaje: 'No se encontró el producto.'
+                mensaje: 'No se encontró el producto para tu tienda.'
             });
         }
 
         // Evitar desactivar un producto que ya está desactivado
-        if (productos[0].estado === 0 || productos[0].estado === false) {
+        if (
+            productos[0].estado === 0 ||
+            productos[0].estado === false
+        ) {
             return res.status(409).json({
                 mensaje: 'El producto ya se encuentra desactivado.'
             });
         }
 
-        // Actualizar su estado sin borrar el registro
-        await pool.execute(
-            'UPDATE Producto SET estado = 0 WHERE idProducto = ?',
-            [idProducto]
+        // Desactivar únicamente un producto de la tienda autenticada
+        const [resultado] = await pool.execute(
+            `UPDATE Producto AS p
+             INNER JOIN Comercio AS c
+                 ON p.idTienda = c.idTienda
+             SET p.estado = FALSE
+             WHERE p.idProducto = ?
+               AND p.estado = TRUE
+               AND c.idUsuario = ?
+               AND c.estado = TRUE`,
+            [idProducto, req.usuario.idUsuario]
         );
+
+        // Verificar si la operación modificó el producto
+        if (resultado.affectedRows === 0) {
+            return res.status(409).json({
+                mensaje: 'No se pudo desactivar el producto. Puede que ya esté desactivado o que su estado haya cambiado.'
+            });
+        }
 
         return res.status(200).json({
             mensaje: 'Producto desactivado correctamente.',
@@ -316,13 +447,17 @@ const desactivarProducto = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error al desactivar producto:', error.message);
+        console.error(
+            'Error al desactivar producto:',
+            error.message
+        );
 
         return res.status(500).json({
             mensaje: 'Error interno al desactivar el producto.'
         });
     }
 };
+
 
 
 
